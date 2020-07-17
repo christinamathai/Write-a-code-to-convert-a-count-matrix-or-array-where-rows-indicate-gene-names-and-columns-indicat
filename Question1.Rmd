@@ -1,0 +1,100 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+```{r}
+library(biomaRt)
+library(edgeR)
+library(iterpc)
+library(DESeq2)
+library(GenomicFeatures)
+library (EDASeq)
+library(tidyverse)
+library(dplyr)
+
+#import data
+mouse_count_matrix <- read.delim("~/Downloads/mouse_count_matrix.txt", header = TRUE, sep = "\t")
+#save data into a new dataframe new_data1
+new_data1 <- mouse_count_matrix
+#Since the class of gene column is factor, convert to character and save it in gene_exp variable
+gene_exp <- as.character(new_data1$gene)
+
+#use getGeneLengthAndGCContent function from EDASeq package to get the length and gc content of the respective gene
+gene_length_gc <- getGeneLengthAndGCContent(gene_exp, "mmusculus_gene_ensembl")
+#add the length column in the new_data1 dataframe
+new_data1$length <- gene_length_gc[1 : nrow(gene_length_gc)]
+
+#since the length is in bp, converting to kb
+new_data1$length <- new_data1$length/1000
+head(new_data1)
+```
+
+RPKM
+```{r}
+#create a new dataframe RPKM(reads per kilobase million)
+RPKM <- as.data.frame(cbind(new_data1$gene, new_data1$SRX026633, new_data1$SRX026632, new_data1$SRX026631, new_data1$SRX026630))
+
+colnames(RPKM) <- c("Gene", "SRX026633", "SRX026632","SRX026631", "SRX026630")
+len <- ncol(new_data1)
+length_col <- new_data1$length
+
+for (i in 2 : len - 1)
+{
+  #normalise for read depth
+  #calculate the total number of reads from each column and divide the read counts for each gene with   the scaling factor(10 ^ 6)
+  scaling <- sum(as.numeric(new_data1[ , i]), na.rm = TRUE) / 10 ^ 6
+  #normalise for gene length
+  #Divide the recently normalised data with gene length
+  RPKM[ , i] <- (as.numeric(new_data1[ , i])) / (as.numeric(length_col) * scaling)
+  RPKM[ , 1] <- new_data1$gene
+}
+#RPKM and FPKM are closely related terms. RPKM is used for single-end RNA sequence and FPKM is used for pair end RNA sequences(fragments are counted instead of reads)
+head(RPKM)
+```
+
+TPM
+```{r}
+#create a new dataframe TPM(transcripts per million)
+TPM <- as.data.frame(cbind(new_data1$gene, new_data1$SRX026633, new_data1$SRX026632, new_data1$SRX026631, new_data1$SRX026630))
+
+colnames(TPM) <- c("Gene", "SRX026633", "SRX026632","SRX026631", "SRX026630")
+
+for (i in 2 : len - 1)
+{
+  #normalize for each gene length
+  #divide each count by length
+  norm_gene <- as.numeric(new_data1[ , i]) / as.numeric(length_col)
+  #normalize for sequence depth
+  #add the read counts of already normalized data and divide by 10 ^ 6
+  total_reads_scaling <-  sum(as.numeric(norm_gene), na.rm = TRUE) / 10 ^ 6
+  #divide the read counts with the scaling
+  TPM[ , i] <- as.numeric(norm_gene) / total_reads_scaling
+  TPM[ , 1] <- new_data1$gene
+}
+head(TPM)
+
+#Difference between FPKM and TPM
+#both are correct for biases in gene length and sequencing depth. However, the sum of the normalised regions are different in FPKM. We get different value from each column. Hence, it is harder to compare the proportion of total reads because each column has different total.
+#In the case of TPM we get the same value from each column. Numbers can tell what proportion of reads are mapped to what in each sample.
+```
+
+TMM
+```{r}
+##TMM(Trimmed Mean of M-values)
+#assumes that most genes are not differentially expressed
+TMM <- calcNormFactors(new_data1[ , 2: 5], method = "TMM")
+TMM
+```
+
+CPM
+```{r}
+###CPM(Counts per million)
+#descriptive measure for the expression level of a gene
+CPM <- cpm(new_data1[ , 2 : 5], lib.size = NULL, log = FALSE)
+head(CPM)
+```
+
+
